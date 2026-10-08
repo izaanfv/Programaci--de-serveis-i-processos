@@ -1,5 +1,3 @@
-# Programaci--de-serveis-i-processos
-
 using System;
 using AppInsegura.Datos;
 using AppInsegura.Modelos;
