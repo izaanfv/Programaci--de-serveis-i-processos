@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using AppInsegura.Datos;
 using AppInsegura.Modelos;
 using AppInsegura.Servicios;
@@ -16,7 +17,6 @@ namespace AppInsegura
             CargarUsuariosDeEjemplo();
 
             Console.WriteLine("=== Gestor de Usuarios y Partidas ===");
-            Console.WriteLine("(usuarios de prueba: admin/admin1234, ana/ana2024)");
             Console.WriteLine();
 
             bool salir = false;
@@ -57,8 +57,9 @@ namespace AppInsegura
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine("Ha ocurrido un error inesperado:");
-                    Console.WriteLine(ex.ToString());
+                    // Al usuario, un mensaje genérico. El detalle, al registro interno.
+                    File.AppendAllText("errores.log", ex + Environment.NewLine);
+                    Console.WriteLine("Ha ocurrido un error.");
                 }
 
                 Console.WriteLine();
@@ -90,15 +91,49 @@ namespace AppInsegura
             Console.Write("Elige una opción: ");
         }
 
+        // Lee la contraseña sin enseñarla: por cada tecla escribe un asterisco (*).
+        private static string LeerContrasena()
+        {
+            string contrasena = "";
+            ConsoleKeyInfo tecla = Console.ReadKey(true); // true = no mostrar la tecla
+            while (tecla.Key != ConsoleKey.Enter)
+            {
+                if (tecla.Key == ConsoleKey.Backspace)
+                {
+                    if (contrasena.Length > 0)
+                    {
+                        contrasena = contrasena.Substring(0, contrasena.Length - 1);
+                        Console.Write("\b \b"); // borra el último asterisco
+                    }
+                }
+                else if (!char.IsControl(tecla.KeyChar))
+                {
+                    contrasena += tecla.KeyChar;
+                    Console.Write("*");
+                }
+                tecla = Console.ReadKey(true);
+            }
+            Console.WriteLine();
+            return contrasena;
+        }
+
         private static void Registrar()
         {
             Console.Write("Nombre de usuario: ");
             string nombre = Console.ReadLine() ?? "";
             Console.Write("Contraseña: ");
-            string contrasena = Console.ReadLine() ?? "";
+            string contrasena = LeerContrasena();
 
-            Usuario nuevo = auth.Registrar(nombre, contrasena);
-            Console.WriteLine($"Usuario '{nuevo.Nombre}' registrado con rol '{nuevo.Rol}'.");
+            try
+            {
+                Usuario nuevo = auth.Registrar(nombre, contrasena);
+                Console.WriteLine($"Usuario '{nuevo.Nombre}' registrado.");
+            }
+            catch (ArgumentException ex)
+            {
+                // Estos mensajes los hemos escrito nosotros y son seguros de mostrar.
+                Console.WriteLine(ex.Message);
+            }
         }
 
         private static void IniciarSesion()
@@ -106,7 +141,7 @@ namespace AppInsegura
             Console.Write("Nombre de usuario: ");
             string nombre = Console.ReadLine() ?? "";
             Console.Write("Contraseña: ");
-            string contrasena = Console.ReadLine() ?? "";
+            string contrasena = LeerContrasena();
 
             Usuario? usuario = auth.IniciarSesion(nombre, contrasena);
             if (usuario == null)
@@ -121,12 +156,26 @@ namespace AppInsegura
 
         private static void BuscarUsuario()
         {
+            // Hay que haber iniciado sesión para buscar usuarios.
+            if (usuarioActual == null)
+            {
+                Console.WriteLine("Primero debes iniciar sesión.");
+                return;
+            }
+
             Console.Write("Nombre a buscar: ");
             string nombre = Console.ReadLine() ?? "";
 
+            if (!Validador.NombreValido(nombre))
+            {
+                Console.WriteLine("Nombre no válido.");
+                return;
+            }
+
             Usuario? encontrado = baseDatos.BuscarPorNombre(nombre);
+            // Solo mostramos el nombre, no el rol.
             Console.WriteLine(encontrado != null
-                ? $"Encontrado: {encontrado.Nombre} (rol: {encontrado.Rol})"
+                ? $"Encontrado: {encontrado.Nombre}"
                 : "No se ha encontrado ningún usuario con ese nombre.");
         }
 
@@ -140,11 +189,18 @@ namespace AppInsegura
 
             Console.WriteLine($"Nombre: {usuarioActual.Nombre}");
             Console.WriteLine($"Rol: {usuarioActual.Rol}");
-            Console.WriteLine($"Token de sesión: {usuarioActual.TokenSesion}");
         }
 
         private static void PanelAdministracion()
         {
+            // Comprobamos el permiso aquí, no solo ocultando la opción del menú.
+            // Si no se puede comprobar el rol, no se entra.
+            if (usuarioActual == null || usuarioActual.Rol != "admin")
+            {
+                Console.WriteLine("No tienes permisos para acceder a esta opción.");
+                return;
+            }
+
             Console.WriteLine("=== PANEL DE ADMINISTRACIÓN ===");
             Console.WriteLine("Lista de usuarios registrados:");
             foreach (Usuario u in baseDatos.ListarTodos())
@@ -161,6 +217,8 @@ namespace AppInsegura
                 return;
             }
 
+            // OJO: en una app real la puntuación la comprobaría el servidor,
+            // porque lo que envía el cliente no es de fiar.
             var red = new RedService();
             red.EnviarPuntuacion(usuarioActual.Nombre, 1000);
         }
